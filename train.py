@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[4]:
 
 
 import os
@@ -15,30 +15,29 @@ import datetime as dt
 import cv2
 from PIL import Image
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 import torch, gc
 from torch import nn
 from torch.utils.data import Dataset,DataLoader
 import torch.nn.functional as F
-import torchvision
 
 #from skimage import io
-import sklearn
-from sklearn.model_selection import GroupKFold, StratifiedKFold
-from sklearn.metrics import roc_auc_score, log_loss, f1_score, confusion_matrix
+from sklearn.metrics import roc_curve, auc, f1_score, confusion_matrix
 from sklearn import metrics, preprocessing
 import timm
 import albumentations as A
+import albumentations.pytorch
 import wandb
 
 
 # ##### Parameters
 
-# In[2]:
+# In[4]:
 
 
 CFG = {
     'seed': 42,
-    'model': 'inception_resnet_v2',
+    'model': 'resnet50',
     'img_size': 256,
     'epochs': 200,
     'train_bs':128,
@@ -49,27 +48,16 @@ CFG = {
     'patience' : 5,
     'device': 'cuda:0',
     'freezing': False,
-    'trainable_layer': 6,
+    'trainable_layer': 2,
     'model_path': './models'
 }
 
+print(f"batch size: {CFG['train_bs']}")
+# #### Train Valid Test dataset
+# ##### Natural data (coco) train: 10000 // valid: 2900 // test: 1500
+# ##### Generated data (coco captions) train: 10000 (Augneted 3000, generated 7000) // valid: 2900 // test: 1500
 
-# #### Train dataset
-# ##### Disaster coco: 894 // flickr: 184 // open_image: 616 // aug 6620 // generated 1782
-# ##### Non-disaster coco: 30000 // open_image: 30000
-# ---
-# ###### disaster, non-disaster 아래 모든 이미지를 들고 옵니다.
-
-# In[3]:
-
-
-folder_path = './data/generated_images/train'
-files = os.listdir(folder_path)
-print(len(files))
-#files
-
-
-# In[23]:
+# In[5]:
 
 
 # Initialize the data structure
@@ -121,26 +109,10 @@ df_valid = df[df['type'] == 'valid'].reset_index(drop=True)
 df_test = df[df['type'] == 'test'].reset_index(drop=True)
 
 
-# In[24]:
-
-
-df_valid
-
-
-# In[25]:
-
-
-df_train
-
-
-# #### Wandb (Trainning log tracking) init, project name define 
-
-# In[8]:
-
 
 time_now = dt.datetime.now()
 run_id = time_now.strftime("%Y%m%d%H%M")
-project_name = 'gen_'+ 'icp_res'
+project_name = 'gen_'+ CFG['model']
 user = 'hojunking'
 run_name = project_name + '_' + run_id
 
@@ -160,7 +132,7 @@ def seed_everything(seed):
 
 # ##### All images have been augmented physically, only transform the images to be resized by 256 by 256
 
-# In[7]:
+# In[11]:
 
 
 transform = A.Compose(
@@ -173,39 +145,48 @@ transform = A.Compose(
 
 # #### Dataset
 
-# In[8]:
+# In[12]:
 
 
 class CustomDataset(Dataset):
-    def __init__(self, df, data_root, transform=None, output_label=True):
-        super(CustomDataset,self).__init__()
+    def __init__(self, df, transform=None, output_label=True):
+        super().__init__()
         self.df = df.reset_index(drop=True).copy()
         self.transform = transform
-        self.data_root = data_root
         self.output_label = output_label
-         
-        if output_label == True:
+        
+        if output_label:
             self.labels = self.df['label'].values
     
     def __len__(self):
         return self.df.shape[0]
     
     def __getitem__(self, index: int):
+        # Constructing the image path directly from the DataFrame
+        img_path = self.df.loc[index, 'path']
+        im_bgr = cv2.imread(img_path)
         
-        # GET IMAGES
-        path = "{}/{}".format(self.data_root[index], self.df.iloc[index]['image_id'])
-        im_bgr = cv2.imread(path)
-        im_rgb = im_bgr[:, :, ::-1]
-        min_side = min(im_rgb.shape[:2])
-            
-        center_crop = A.Compose([
-        A.CenterCrop(height=min_side, width=min_side),  # Crop the center to the target size
-        ])
+        # Check if image is loaded successfully
+        if im_bgr is not None:
+            img = cv2.cvtColor(im_bgr, cv2.COLOR_BGR2RGB)
+        else:
+            # If the image is not successfully loaded, create a black image of the defined size
+            img = np.zeros([CFG['img_size'], CFG['img_size'], 3], dtype=np.uint8)
 
-        cropped_image = center_crop(image=im_rgb)["image"]
-        transformed_img =self.transform(image=cropped_image)['image']
+        # Crop the image from the center
+        min_side = min(img.shape[:2])
+        center_crop = A.Compose([
+            A.CenterCrop(height=min_side, width=min_side),  # Crop the center to the target size
+        ])
+        cropped_image = center_crop(image=img)["image"]
+
+        # Apply transformations
+        if self.transform:
+            transformed_img = self.transform(image=cropped_image)['image']
+        else:
+            transformed_img = cropped_image
         
-        # GET LABELS
+        # Get labels
         if self.output_label:
             target = self.labels[index]
             return transformed_img, target
@@ -222,18 +203,21 @@ class baseModel(nn.Module):
     def __init__(self, model_arch, n_class=2, pretrained=False):
         super().__init__()
         self.model = timm.create_model(model_arch, pretrained=pretrained, num_classes=n_class)
-        # n_features = self.model.classifier.in_features
-        # self.model.classifier = nn.Linear(n_features, n_class)
     
-    ### Layer Freezing
-    def freezing(self, freeze=False, trainable_layer = 2):
-        
+    def freezing(self, freeze=False, trainable_layer=2):
         if freeze:
-            num_layers = len(list(self.model.parameters()))
-            for i, param in enumerate(self.parameters()):
-                if i < num_layers - trainable_layer*2:
-                    param.requires_grad = False    
-            
+            # Freeze all parameters first
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            # Unfreeze the last few layers
+            children = list(self.model.children())  # Get model's top-level modules and layers
+            num_children = len(children)
+            for i, child in enumerate(children):
+                if i >= num_children - trainable_layer:  # Unfreeze the last 'trainable_layer' modules/layers
+                    for param in child.parameters():
+                        param.requires_grad = True
+
     def forward(self, x):
         x = self.model(x)
         return x
@@ -246,11 +230,8 @@ class baseModel(nn.Module):
 
 def prepare_dataloader(df_train, df_valid):
     
-    train_root_dir = df_train.dir.values
-    valid_root_dir = df_valid.dir.values
-
-    train_ds = CustomDataset(df_train, train_root_dir, transform=transform, output_label=True)
-    valid_ds = CustomDataset(df_valid, valid_root_dir, transform=transform,  output_label=True)
+    train_ds = CustomDataset(df_train, transform=transform, output_label=True)
+    valid_ds = CustomDataset(df_valid, transform=transform,  output_label=True)
 
     train_loader = torch.utils.data.DataLoader(
         train_ds,
@@ -258,7 +239,6 @@ def prepare_dataloader(df_train, df_valid):
         pin_memory=True,
         drop_last=False,
         shuffle=True,
-        sampler=False, 
         num_workers=CFG['num_workers'],
     )
     val_loader = torch.utils.data.DataLoader(
@@ -271,122 +251,94 @@ def prepare_dataloader(df_train, df_valid):
     return train_loader, val_loader
 
 
-# #### Train
+# #### Train & Valid
 
 # In[15]:
 
 
 def train_one_epoch(epoch, model, loss_fn, optimizer, train_loader, device, scheduler=None):
     t = time.time()
-    
-    # SET MODEL TRAINING MODE
-    model.train()
-    
-    running_loss = None
-    loss_sum = 0
+    model.train()  # Set model to training mode
+
+    running_loss = 0
     image_preds_all = []
     image_targets_all = []
-    acc_list = []
     
     pbar = tqdm(enumerate(train_loader), total=len(train_loader))
     for step, (imgs, image_labels) in pbar:
-        imgs = imgs.to(device).float()
-        image_labels = image_labels.to(device).long()
+        imgs, image_labels = imgs.to(device).float(), image_labels.to(device).long()
         
         optimizer.zero_grad()
         
-        # TEACHER MODEL PREDICTION
         with torch.cuda.amp.autocast():
-            image_preds = model(imgs)   #output = model(input)
-
+            image_preds = model(imgs)  # forward pass
             loss = loss_fn(image_preds, image_labels)
-            loss_sum+=loss.detach()
-            
-            # BACKPROPAGATION
-            scaler.scale(loss).backward()
+            scaler.scale(loss).backward()  # backward pass with scaled loss
             scaler.step(optimizer)
             scaler.update()
+
+        running_loss = 0.99 * running_loss + 0.01 * loss.item()  # update running loss
         
-            if running_loss is None:
-                running_loss = loss.item()
-            else:
-                running_loss = running_loss * .99 + loss.item() * .01    
+        # Update pbar description
+        pbar.set_description(f'Epoch {epoch} Loss: {running_loss:.4f}')
         
-            # TQDM VERBOSE_STEP TRACKING
-            if ((step + 1) % CFG['verbose_step'] == 0) or ((step + 1) == len(train_loader)):
-                description = f'epoch {epoch} loss: {running_loss:.4f}'
-                pbar.set_description(description)
-        
-        image_preds_all += [torch.argmax(image_preds, 1).detach().cpu().numpy()]
-        image_targets_all += [image_labels.detach().cpu().numpy()]
+        image_preds_all.append(torch.argmax(image_preds, 1).detach().cpu().numpy())
+        image_targets_all.append(image_labels.detach().cpu().numpy())
         
     if scheduler is not None:
         scheduler.step()
-    
+
     image_preds_all = np.concatenate(image_preds_all)
     image_targets_all = np.concatenate(image_targets_all)
     
-    matrix = confusion_matrix(image_targets_all,image_preds_all)
-    epoch_f1 = f1_score(image_targets_all, image_preds_all, average='macro')
+    accuracy = np.mean(image_preds_all == image_targets_all)
+    epoch_f1 = f1_score(image_targets_all, image_preds_all, average='micro')
     
-    accuracy = (image_preds_all==image_targets_all).mean()
-    trn_loss = loss_sum/len(train_loader)
-    
-    return image_preds_all, accuracy, trn_loss, matrix, epoch_f1
-
-
-# ##### Valid
-
-# In[16]:
-
+    return image_preds_all, accuracy, running_loss / len(train_loader), confusion_matrix(image_targets_all, image_preds_all), epoch_f1
 
 def valid_one_epoch(epoch, model, loss_fn, val_loader, device, scheduler=None, schd_loss_update=False):
-    t = time.time()
-    
-    # SET MODEL VALID MODE
-    model.eval()
-    
+    model.eval()  # Set model to evaluation mode
+
     loss_sum = 0
-    sample_num = 0
-    avg_loss = 0
     image_preds_all = []
     image_targets_all = []
-    acc_list = []
     
     pbar = tqdm(enumerate(val_loader), total=len(val_loader))
-    for step, (imgs, image_labels) in pbar:
-        imgs = imgs.to(device).float()
-        image_labels = image_labels.to(device).long()
-        
-        # TEACHER MODEL PREDICTION
-        image_preds = model(imgs)
-        image_preds_all += [torch.argmax(image_preds, 1).detach().cpu().numpy()]
-        image_targets_all += [image_labels.detach().cpu().numpy()]
-        
-        loss = loss_fn(image_preds, image_labels)
-        
-        avg_loss += loss.item()
-        loss_sum += loss.item()*image_labels.shape[0]
-        sample_num += image_labels.shape[0]
-        
-        # TQDM
-        description = f'epoch {epoch} loss: {loss_sum/sample_num:.4f}'
-        pbar.set_description(description)
+    with torch.no_grad():  # No gradients needed for validation
+        for step, (imgs, image_labels) in pbar:
+            imgs, image_labels = imgs.to(device).float(), image_labels.to(device).long()
+            
+            image_preds = model(imgs)  # forward pass
+            loss = loss_fn(image_preds, image_labels)  # calculate loss
+
+            # Aggregate predictions and targets for metrics calculation
+            image_preds_all.append(torch.argmax(image_preds, 1).detach().cpu().numpy())
+            image_targets_all.append(image_labels.detach().cpu().numpy())
+
+            loss_sum += loss.item() * image_labels.shape[0]  # total loss for average calculation
+            
+            # Update pbar description
+            pbar.set_description(f'Epoch {epoch} Loss: {loss_sum/((step+1) * val_loader.batch_size):.4f}')
     
+    # Convert list of arrays to single numpy array for metric calculation
     image_preds_all = np.concatenate(image_preds_all)
     image_targets_all = np.concatenate(image_targets_all)
-    matrix = confusion_matrix(image_targets_all,image_preds_all)
     
-    epoch_f1 = f1_score(image_targets_all, image_preds_all, average='macro')
-    acc = (image_preds_all==image_targets_all).mean()
-    val_loss = avg_loss/len(val_loader)
-    
-    return image_preds_all, acc, val_loss, matrix, epoch_f1
+    # Calculate performance metrics
+    epoch_f1 = f1_score(image_targets_all, image_preds_all, average='micro')
+    acc = np.mean(image_preds_all == image_targets_all)
+    val_loss = loss_sum / len(image_targets_all)  # average loss
+
+    # Step the scheduler if it's based on validation loss and such option is enabled
+    if scheduler is not None and schd_loss_update:
+        scheduler.step(val_loss)
+
+    return image_preds_all, acc, val_loss, confusion_matrix(image_targets_all, image_preds_all), epoch_f1
 
 
 # ##### Define EarlyStopping
 
-# In[17]:
+# In[16]:
 
 
 class EarlyStopping:
@@ -396,23 +348,30 @@ class EarlyStopping:
         self.counter = 0
         self.best_score = None
         self.early_stop = False
-        self.val_loss_min = np.Inf
+        self.val_loss_min = np.Inf  # Initialize this to a large number
         self.delta = delta
 
-    def __call__(self, score):
-        print(f' present score: {score}')
+    def __call__(self, val_loss):
+        score = -val_loss  # Convert to a score (as lower loss is better, we negate it)
+
+        if self.verbose:
+            print(f'Validation loss: {val_loss}')
+
         if self.best_score is None:
             self.best_score = score
-        elif score <= self.best_score + self.delta:
+            self.val_loss_min = val_loss
+        elif score < self.best_score + self.delta:
             self.counter += 1
-            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
-            print(f'Best F1 score from now: {self.best_score}')
+            if self.verbose:
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+                print(f'Best validation loss: {self.val_loss_min}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
             self.best_score = score
-            self.counter = 0
-        
+            self.val_loss_min = val_loss  # Update the minimum validation loss
+            self.counter = 0  # Reset counter
+
         return self.early_stop
 
 
@@ -430,12 +389,11 @@ if __name__ == '__main__':
     wandb.define_metric("Valid Accuracy", step_metric="epoch")
     wandb.define_metric("Train Loss", step_metric="epoch")
     wandb.define_metric("Valid Loss", step_metric="epoch")
-    wandb.define_metric("Train Macro F1 Score", step_metric="epoch")
-    wandb.define_metric("Valid Macro F1 Score", step_metric="epoch")
+    wandb.define_metric("Train micro F1 Score", step_metric="epoch")
+    wandb.define_metric("Valid micro F1 Score", step_metric="epoch")
     wandb.define_metric("Train-Valid Accuracy", step_metric="epoch")
     
     model_dir = CFG['model_path'] + '/{}'.format(run_name)
-    train_dir = df.dir.values
     best_f1 =0.0
     print('Model: {}'.format(CFG['model']))
     # MAKE MODEL DIR
@@ -453,8 +411,9 @@ if __name__ == '__main__':
     model =baseModel(CFG['model'], df_train.label.nunique(), pretrained=True)
     
     # MODEL FREEZING
-    #model.freezing(freeze = CFG['freezing'], trainable_layer = CFG['trainable_layer'])
+    
     if CFG['freezing'] ==True:
+        model.freezing(freeze = CFG['freezing'], trainable_layer = CFG['trainable_layer'])
         for name, param in model.named_parameters():
             if param.requires_grad == True:
                 print(f"{name}: {param.requires_grad}")
@@ -516,9 +475,9 @@ if __name__ == '__main__':
             torch.save(model.module.state_dict(), (model_dir+'/{}.pth').format(CFG['model']))
 
         # EARLY STOPPING
-        stop = early_stopping(valid_f1)
+        stop = early_stopping(valid_loss)
         if stop:
-            print("stop called")   
+            print("Early stopping triggered due to no improvement in validation loss.")   
             break
 
         end = time.time() - start
@@ -527,50 +486,49 @@ if __name__ == '__main__':
 
         # PRINT BEST F1 SCORE MODEL OF FOLD
         best_index = valid_f1_list.index(max(valid_f1_list))
-        print(f'Best Train Marco F1 : {train_f1_list[best_index]:.5f}')
+        print(f'Best Train Micro F1 : {train_f1_list[best_index]:.5f}')
         print(train_matrix_list[best_index])
-        print(f'Best Valid Marco F1 : {valid_f1_list[best_index]:.5f}')
+        print(f'Best Valid Micro F1 : {valid_f1_list[best_index]:.5f}')
         print(valid_matrix_list[best_index])
 
 
-# #### Test dataset non-disaster 20000 // disaster 400
+# #### Test
 
-# In[26]:
-
-
-df_test
+# In[19]:
 
 
-# In[22]:
-
-
-########################## inference #############################
 def inference(model, data_loader, device):
     model.eval()
     image_preds_all = []
-    
-    pbar = tqdm(enumerate(data_loader), total=len(data_loader))
-    for step, (imgs) in pbar:
-        imgs = imgs.to(device).float()
 
-        image_preds = model(imgs)   #output = model(input)
-        image_preds_all += [torch.softmax(image_preds, 1).detach().cpu().numpy()]
+    pbar = tqdm(enumerate(data_loader), total=len(data_loader), desc="Inference Batches")
+    with torch.no_grad():  # No gradients needed for inference
+        for step, imgs in pbar:
+            imgs = imgs.to(device).float()
+
+            # Forward pass
+            image_preds = model(imgs)
+            # Apply softmax to calculate probabilities
+            image_preds_all.append(torch.softmax(image_preds, 1).detach().cpu().numpy())
     
+    # Concatenate all batch predictions
     image_preds_all = np.concatenate(image_preds_all, axis=0)
     return image_preds_all
 
 
-# ##### Test
-
-# In[23]:
+# In[21]:
 
 
-# RUN INFERENCE
+device = torch.device(CFG['device'])
+# Initialize the model with the right architecture and number of classes
 model = baseModel(CFG['model'], df_test.label.nunique(), pretrained=True)
-load_model = CFG['model_path'] + '/disaster_icp_res_202307080058/' + CFG['model'] + '.pth'
-test_dir = df_test.dir.values
 
-tst_ds = CustomDataset(df_test, test_dir, transform=transform, output_label=False)
+# Load the trained weights into the model
+load_model_path = model_dir + '/' + CFG['model'] + '.pth'
+model.load_state_dict(torch.load(load_model_path, map_location=device))
+
+# Prepare the test dataset and loader
+tst_ds = CustomDataset(df_test, transform=transform, output_label=False)
 tst_loader = torch.utils.data.DataLoader(
     tst_ds, 
     batch_size=CFG['train_bs'],
@@ -578,56 +536,112 @@ tst_loader = torch.utils.data.DataLoader(
     shuffle=False,
     pin_memory=True
 )
-device = torch.device(CFG['device'])
 
-#INFERENCE VIA MULTI-GPU
-if torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
+# Move the model to the appropriate device (CPU or GPU)
 model.to(device)
 
-# RUN INFERENCE
-predictions = []
-model.load_state_dict(torch.load(load_model))
+# Wrap the model with DataParallel if using multiple GPUs
+if torch.cuda.device_count() > 1:
+    model = nn.DataParallel(model)
+
+# Run inference and collect predictions
 with torch.no_grad():
-    predictions += [inference(model, tst_loader, device)]
+    predictions = inference(model, tst_loader, device)
 
-
-predictions = np.mean(predictions, axis=0) 
+# Assuming the task is a classification, convert softmax outputs to predicted class labels
 df_test['pred'] = np.argmax(predictions, axis=1)
-df_test
-
-
-# In[24]:
-
 
 ## Decode labels & Predictions
-df_test['label'] = le.inverse_transform(df_test['label'].values)
-df_test['pred'] = le.inverse_transform(df_test['pred'].values)
-df_test
+# df_test['label'] = le.inverse_transform(df_test['label'].values)
+# df_test['pred'] = le.inverse_transform(df_test['pred'].values)
+
+# In[22]:
 
 
-# In[26]:
+# Calculate ROC curve and AUC
+fpr, tpr, thresholds = roc_curve(df_test['label'], df_test['pred'])
+roc_auc = auc(fpr, tpr)
+
+# Plotting the ROC curve
+plt.figure(figsize=(10, 8))
+plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic')
+plt.legend(loc="lower right")
+
+# Save the figure
+plt.savefig(model_dir+'/roc_curve.png')
+#plt.show()
+
+
+# In[23]:
 
 
 import seaborn as sns
 
 test_acc = np.sum(df_test.label == df_test.pred) / len(df_test)
 test_matrix = confusion_matrix(df_test['label'], df_test['pred'])
-epoch_f1 = f1_score(df_test['label'], df_test['pred'], average='macro')
+epoch_f1 = f1_score(df_test['label'], df_test['pred'], average='micro')
 print(f'accuracy: {test_acc:.4f}')
 print(f'f1_score: {epoch_f1:.4f}')
 
-test_matrix = confusion_matrix(df_test['label'], df_test['pred'], normalize='true')
-#test_matrix = confusion_matrix(test['label'], test['pred'])
-
+#test_matrix = confusion_matrix(df_test['label'], df_test['pred'], normalize='true')
+test_matrix = confusion_matrix(df_test['label'], df_test['pred'])
+print(test_matrix)
 plt.figure(figsize = (15,10))
 sns.heatmap(test_matrix, 
-            annot=True, 
+            annot=True,
+            fmt=".0f",
             xticklabels = sorted(set(df_test['label'])), 
             yticklabels = sorted(set(df_test['label'])),
-            )
-plt.title('Normalized Confusion Matrix')
-plt.show()
+            cmap="YlGnBu")
+plt.title('Confusion Matrix')
+plt.savefig(model_dir+'/confusion_matrix.png')
+#plt.show()
 
 #print(f'confusion_matrix \n-------------------------\n {test_matrix}')
+
+
+# In[24]:
+
+
+# Identify False Positives and False Negatives
+false_positives = df_test[(df_test['label'] == 0) & (df_test['pred'] == 1)]
+false_negatives = df_test[(df_test['label'] == 1) & (df_test['pred'] == 0)]
+
+# Sample up to 8 false positive and false negative images
+fp_samples = false_positives.sample(n=min(6, len(false_positives)), random_state=1)
+fn_samples = false_negatives.sample(n=min(6, len(false_negatives)), random_state=1)
+
+
+# Visualize samples with matplotlib
+fig, axes = plt.subplots(2, 5, figsize=(20, 10))  # Adjusted for 2 rows and 4 columns
+
+# Since we cannot actually load the images, here we'll just simulate the visualization process.
+# Replace 'mpimg.imread' with your actual image loading code in your local environment.
+
+for i, (idx, row) in enumerate(fp_samples.iloc[:5].iterrows()):  # Only taking up to 4 samples for FP
+    # img = mpimg.imread(row['path'])  # Use this line in your local environment
+    img = mpimg.imread(row['path'])
+    axes[0, i].imshow(img)
+    axes[0, i].set_title(f"FP: {row['id']}")
+    axes[0, i].axis('off')
+
+for i, (idx, row) in enumerate(fn_samples.iloc[:5].iterrows()):  # Only taking up to 4 samples for FN
+    # img = mpimg.imread(row['path'])  # Use this line in your local environment
+    img = mpimg.imread(row['path'])
+    axes[1, i].imshow(img)
+    axes[1, i].set_title(f"FN: {row['id']}")
+    axes[1, i].axis('off')
+
+# Adjust layout
+plt.tight_layout()
+plt.savefig(model_dir+'/FP_FN_ex_images.png')
+
+#plt.show()
+
 
