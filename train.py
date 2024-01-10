@@ -37,11 +37,11 @@ import wandb
 
 CFG = {
     'seed': 42,
-    'model': 'resnet50',
-    'img_size': 256,
+    'model': 'convnext_xlarge',
+    'img_size': 384,
     'epochs': 200,
-    'train_bs':128,
-    'valid_bs':64,
+    'train_bs':8,
+    'valid_bs':4,
     'lr': 1e-4,
     'num_workers': 10,
     'verbose_step': 1,
@@ -73,7 +73,7 @@ base_dir = './data'
 
 # Define the subdirectories and labels
 categories = {
-    'generated_images': 'generated',
+    'generated_watermarked': 'generated',
     'natural_images': 'natural'
 }
 
@@ -112,7 +112,7 @@ df_test = df[df['type'] == 'test'].reset_index(drop=True)
 
 time_now = dt.datetime.now()
 run_id = time_now.strftime("%Y%m%d%H%M")
-project_name = 'gen_'+ CFG['model']
+project_name = 'gen_w_'+ CFG['model']
 user = 'hojunking'
 run_name = project_name + '_' + run_id
 
