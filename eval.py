@@ -57,7 +57,7 @@ def process_directory(path):
         if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
             data['id'].append(file)
             data['path'].append(os.path.join(path, file))
-            data['label'].append(0)  # Assuming inference is for 'generated' images
+            data['label'].append(1)  # Assuming inference is for 'generated' images
 
 
 # Process the specified directory
