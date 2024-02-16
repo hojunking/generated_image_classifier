@@ -44,49 +44,29 @@ CFG = {
 data = {
     'id': [],
     'path': [],
-    'label': [],
-    'type': []  # Distinguishing between train, valid, and test
+    'label': []  # Assuming all images are for inference, the label could be added post-prediction if needed.
 }
 
-# Define the base directory
-base_dir = './data'
+# Define the directory containing images for inference
+images_dir = './data/dalle2/dalle2_dataset'  # Adjust this path to your directory containing images for inference
 
-# Define the subdirectories and labels
-categories = {
-    'generated_watermarked': 'generated',
-    'natural_images': 'natural'
-}
+# Function to process the directory
+def process_directory(path):
+    for file in os.listdir(path):
+        if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
+            data['id'].append(file)
+            data['path'].append(os.path.join(path, file))
+            data['label'].append('generated')  # Assuming inference is for 'generated' images
 
-# Include 'test' in the subfolders
-subfolders = ['train', 'valid', 'test']
 
-# Function to process each directory
-def process_directory(path, label, folder_type):
-    for root, dirs, files in os.walk(path):
-        # Only proceed if in the right subfolder
-        if os.path.basename(root) in subfolders:
-            for file in files:
-                if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
-                    data['id'].append(file)
-                    data['path'].append(os.path.join(root, file))
-                    data['label'].append(label)
-                    data['type'].append(folder_type)
+# Process the specified directory
+process_directory(images_dir)
 
-# Iterate through each category and its specified subdirectories
-for category, label in categories.items():
-    for subfolder in subfolders:
-        dir_path = os.path.join(base_dir, category, subfolder)
-        process_directory(dir_path, label, subfolder)
+# Convert the data to a DataFrame
+df_test = pd.DataFrame(data)
+print(f'len: {len(df_test)}')
+# Note: No need for label encoding or separating into train/valid/test since it's for inference
 
-# Convert the entire data to a DataFrame
-df = pd.DataFrame(data)
-le = preprocessing.LabelEncoder()
-df['label'] = le.fit_transform(df['label'].values)
-
-# Creating separate dataframes for train, valid, and test
-df_train = df[df['type'] == 'train'].reset_index(drop=True)
-df_valid = df[df['type'] == 'valid'].reset_index(drop=True)
-df_test = df[df['type'] == 'test'].reset_index(drop=True)
 
 def seed_everything(seed):
     random.seed(seed)
@@ -250,7 +230,7 @@ plt.title('Receiver Operating Characteristic')
 plt.legend(loc="lower right")
 
 # Save the figure
-plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/roc_curve.png')
+plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/roc_curve_dalle.png')
 
 
 import seaborn as sns
@@ -272,7 +252,7 @@ sns.heatmap(test_matrix,
             yticklabels = sorted(set(df_test['label'])),
             cmap="YlGnBu")
 plt.title('Confusion Matrix')
-plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/confusion_matrix.png')
+plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/confusion_matrix_dalle.png')
 #plt.show()
 
 #print(f'confusion_matrix \n-------------------------\n {test_matrix}')
@@ -312,5 +292,5 @@ for i, (idx, row) in enumerate(fn_samples.iloc[:5].iterrows()):  # Only taking u
 
 # Adjust layout
 plt.tight_layout()
-plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/FP_FN_ex_images.png')
+plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/FP_FN_ex_images_dalle.png')
 
