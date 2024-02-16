@@ -178,7 +178,7 @@ def inference(model, data_loader, device):
 
 device = torch.device(CFG['device'])
 # Initialize the model with the right architecture and number of classes
-model = baseModel(CFG['model'], df_test.label.nunique(), pretrained=True)
+model = baseModel(CFG['model'], 2, pretrained=True)
 
 # Load the trained weights into the model
 load_model_path = './models/gen_convnext_xlarge_202312281239/' + CFG['model'] + '.pth'
