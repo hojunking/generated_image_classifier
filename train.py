@@ -584,7 +584,6 @@ plt.savefig(model_dir+'/roc_curve.png')
 import seaborn as sns
 
 test_acc = np.sum(df_test.label == df_test.pred) / len(df_test)
-test_matrix = confusion_matrix(df_test['label'], df_test['pred'])
 epoch_f1 = f1_score(df_test['label'], df_test['pred'], average='micro')
 print(f'accuracy: {test_acc:.4f}')
 print(f'f1_score: {epoch_f1:.4f}')
