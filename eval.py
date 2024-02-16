@@ -57,7 +57,7 @@ def process_directory(path):
         if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
             data['id'].append(file)
             data['path'].append(os.path.join(path, file))
-            data['label'].append('generated')  # Assuming inference is for 'generated' images
+            data['label'].append(0)  # Assuming inference is for 'generated' images
 
 
 # Process the specified directory
@@ -214,22 +214,9 @@ df_test['pred'] = np.argmax(predictions, axis=1)
 
 # In[22]:
 
-from sklearn.preprocessing import LabelEncoder
-
-# Initialize LabelEncoder
-le = LabelEncoder()
-
-# Fit encoder on all possible labels including both 'natural' and 'generated'
-le.fit(['natural', 'generated'])
-
-# Transform 'label' and 'pred' columns to numeric
-df_test['encoded_label'] = le.transform(df_test['label'])
-df_test['encoded_pred'] = le.transform(df_test['pred'])
-
-
 
 # Calculate ROC curve and AUC
-fpr, tpr, thresholds = roc_curve(df_test['encoded_label'], df_test['encoded_pred'])
+fpr, tpr, thresholds = roc_curve(df_test['label'], df_test['pred'])
 roc_auc = auc(fpr, tpr)
 
 # Plotting the ROC curve
@@ -250,12 +237,13 @@ plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/roc_curve_dalle.png')
 import seaborn as sns
 
 test_acc = np.sum(df_test.label == df_test.pred) / len(df_test)
-epoch_f1 = f1_score(df_test['encoded_label'], df_test['encoded_pred'], average='micro', pos_label=1)
+test_matrix = confusion_matrix(df_test['label'], df_test['pred'])
+epoch_f1 = f1_score(df_test['label'], df_test['pred'], average='micro')
 print(f'accuracy: {test_acc:.4f}')
 print(f'f1_score: {epoch_f1:.4f}')
 
 #test_matrix = confusion_matrix(df_test['label'], df_test['pred'], normalize='true')
-test_matrix = confusion_matrix(df_test['encoded_label'], df_test['encoded_pred'])
+test_matrix = confusion_matrix(df_test['label'], df_test['pred'])
 print(test_matrix)
 plt.figure(figsize = (15,10))
 sns.heatmap(test_matrix, 
@@ -268,10 +256,10 @@ plt.title('Confusion Matrix')
 plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/confusion_matrix_dalle.png')
 #plt.show()
 
-# #print(f'confusion_matrix \n-------------------------\n {test_matrix}')
+#print(f'confusion_matrix \n-------------------------\n {test_matrix}')
 
 
-# # In[24]:
+# In[24]:
 
 
 # # Identify False Positives and False Negatives
