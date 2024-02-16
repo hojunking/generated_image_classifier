@@ -40,6 +40,7 @@ CFG = {
     'model_path': './models'
 }
 
+print(f"batch size: {CFG['train_bs']}")
 # Initialize the data structure
 data = {
     'id': [],
@@ -180,7 +181,7 @@ device = torch.device(CFG['device'])
 model = baseModel(CFG['model'], df_test.label.nunique(), pretrained=True)
 
 # Load the trained weights into the model
-load_model_path = './models/gen_w_convnext_xlarge_202401051301/' + CFG['model'] + '.pth'
+load_model_path = './models/gen_convnext_xlarge_202312281239/' + CFG['model'] + '.pth'
 model.load_state_dict(torch.load(load_model_path, map_location=device))
 
 # Prepare the test dataset and loader
@@ -230,7 +231,7 @@ plt.title('Receiver Operating Characteristic')
 plt.legend(loc="lower right")
 
 # Save the figure
-plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/roc_curve_dalle.png')
+plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/roc_curve_dalle.png')
 
 
 import seaborn as sns
@@ -252,7 +253,7 @@ sns.heatmap(test_matrix,
             yticklabels = sorted(set(df_test['label'])),
             cmap="YlGnBu")
 plt.title('Confusion Matrix')
-plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/confusion_matrix_dalle.png')
+plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/confusion_matrix_dalle.png')
 #plt.show()
 
 #print(f'confusion_matrix \n-------------------------\n {test_matrix}')
@@ -292,5 +293,5 @@ for i, (idx, row) in enumerate(fn_samples.iloc[:5].iterrows()):  # Only taking u
 
 # Adjust layout
 plt.tight_layout()
-plt.savefig('./models/gen_w_convnext_xlarge_202401051301'+'/FP_FN_ex_images_dalle.png')
+plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/FP_FN_ex_images_dalle.png')
 
