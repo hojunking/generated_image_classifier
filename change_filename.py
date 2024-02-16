@@ -1,7 +1,7 @@
 import os
 
 # Define the directory containing the files to be renamed
-directory = './data/dalle2/dalle2_dataset'  # Adjust this path to your specific directory
+directory = './data/imagen_dataset'  # Adjust this path to your specific directory
 
 # Iterate over all files in the directory
 for filename in os.listdir(directory):

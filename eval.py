@@ -57,7 +57,7 @@ def process_directory(path):
         if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
             data['id'].append(file)
             data['path'].append(os.path.join(path, file))
-            data['label'].append(1)  # Assuming inference is for 'generated' images
+            data['label'].append(0)  # Assuming inference is for 'generated' images
 
 
 # Process the specified directory
@@ -216,7 +216,7 @@ df_test['pred'] = np.argmax(predictions, axis=1)
 
 
 # Calculate ROC curve and AUC
-fpr, tpr, thresholds = roc_curve(df_test['label'], df_test['pred'])
+fpr, tpr, thresholds = roc_curve(df_test['label'], df_test['pred'], pos_label=0)
 roc_auc = auc(fpr, tpr)
 
 # Plotting the ROC curve
@@ -238,10 +238,10 @@ import seaborn as sns
 
 test_acc = np.sum(df_test.label == df_test.pred) / len(df_test)
 test_matrix = confusion_matrix(df_test['label'], df_test['pred'])
-epoch_f1 = f1_score(df_test['label'], df_test['pred'], average='micro')
+epoch_f1 = f1_score(df_test['label'], df_test['pred'])
 print(f'accuracy: {test_acc:.4f}')
 print(f'f1_score: {epoch_f1:.4f}')
-
+print(f'roc_auc: {roc_auc:.4f}')
 #test_matrix = confusion_matrix(df_test['label'], df_test['pred'], normalize='true')
 test_matrix = confusion_matrix(df_test['label'], df_test['pred'])
 print(test_matrix)
@@ -262,36 +262,36 @@ plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/confusion_matrix_dalle
 # In[24]:
 
 
-# # Identify False Positives and False Negatives
-# false_positives = df_test[(df_test['label'] == 0) & (df_test['pred'] == 1)]
-# false_negatives = df_test[(df_test['label'] == 1) & (df_test['pred'] == 0)]
+# Identify False Positives and False Negatives
+false_positives = df_test[(df_test['label'] == 0) & (df_test['pred'] == 1)]
+false_negatives = df_test[(df_test['label'] == 1) & (df_test['pred'] == 0)]
 
-# # Sample up to 8 false positive and false negative images
-# fp_samples = false_positives.sample(n=min(6, len(false_positives)), random_state=1)
-# fn_samples = false_negatives.sample(n=min(6, len(false_negatives)), random_state=1)
+# Sample up to 8 false positive and false negative images
+fp_samples = false_positives.sample(n=min(6, len(false_positives)), random_state=1)
+fn_samples = false_negatives.sample(n=min(6, len(false_negatives)), random_state=1)
 
 
-# # Visualize samples with matplotlib
-# fig, axes = plt.subplots(2, 5, figsize=(20, 10))  # Adjusted for 2 rows and 4 columns
+# Visualize samples with matplotlib
+fig, axes = plt.subplots(2, 5, figsize=(20, 10))  # Adjusted for 2 rows and 4 columns
 
-# # Since we cannot actually load the images, here we'll just simulate the visualization process.
-# # Replace 'mpimg.imread' with your actual image loading code in your local environment.
+# Since we cannot actually load the images, here we'll just simulate the visualization process.
+# Replace 'mpimg.imread' with your actual image loading code in your local environment.
 
-# for i, (idx, row) in enumerate(fp_samples.iloc[:5].iterrows()):  # Only taking up to 4 samples for FP
-#     # img = mpimg.imread(row['path'])  # Use this line in your local environment
-#     img = mpimg.imread(row['path'])
-#     axes[0, i].imshow(img)
-#     axes[0, i].set_title(f"FP: {row['id']}")
-#     axes[0, i].axis('off')
+for i, (idx, row) in enumerate(fp_samples.iloc[:5].iterrows()):  # Only taking up to 4 samples for FP
+    # img = mpimg.imread(row['path'])  # Use this line in your local environment
+    img = mpimg.imread(row['path'])
+    axes[0, i].imshow(img)
+    axes[0, i].set_title(f"FP: {row['id']}")
+    axes[0, i].axis('off')
 
-# for i, (idx, row) in enumerate(fn_samples.iloc[:5].iterrows()):  # Only taking up to 4 samples for FN
-#     # img = mpimg.imread(row['path'])  # Use this line in your local environment
-#     img = mpimg.imread(row['path'])
-#     axes[1, i].imshow(img)
-#     axes[1, i].set_title(f"FN: {row['id']}")
-#     axes[1, i].axis('off')
+for i, (idx, row) in enumerate(fn_samples.iloc[:5].iterrows()):  # Only taking up to 4 samples for FN
+    # img = mpimg.imread(row['path'])  # Use this line in your local environment
+    img = mpimg.imread(row['path'])
+    axes[1, i].imshow(img)
+    axes[1, i].set_title(f"FN: {row['id']}")
+    axes[1, i].axis('off')
 
-# # Adjust layout
-# plt.tight_layout()
-# plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/FP_FN_ex_images_dalle.png')
+# Adjust layout
+plt.tight_layout()
+plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/FP_FN_ex_images_dalle.png')
 
