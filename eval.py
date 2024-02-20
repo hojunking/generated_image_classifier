@@ -48,70 +48,68 @@ data = {
     'id': [],
     'path': [],
     'label': [],
-    'type': []  # Distinguishing between train, valid, and test
+    #'type': []  # Distinguishing between train, valid, and test
 }
 
-# ## custom test data--------------------------------------------------------------------------------------------
-# # Define the directory containing images for inference
-# images_dir = './data/dalle2/dalle2_dataset'  # Adjust this path to your directory containing images for inference
-
-# # Function to process the directory
-# def process_directory(path):
-#     for file in os.listdir(path):
-#         if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
-#             data['id'].append(file)
-#             data['path'].append(os.path.join(path, file))
-#             data['label'].append(0)  # Assuming inference is for 'generated' images
+## custom test data--------------------------------------------------------------------------------------------
+# Define the directory containing images for inference
+images_dir = './data/imagen_dataset'  # Adjust this path to your directory containing images for inference
 
 
-# # Process the specified directory
-# process_directory(images_dir)
+def process_directory(path):
+    for file in os.listdir(path):
+        if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
+            data['id'].append(file)
+            data['path'].append(os.path.join(path, file))
+            data['label'].append(0)  # Assuming inference is for 'generated' images
+# Process the base directory containing the 12 subdirectories
+process_directory(images_dir)
 
-# # Convert the data to a DataFrame
-# df_test = pd.DataFrame(data)
+# Convert the data to a DataFrame
+df_test = pd.DataFrame(data)
 
-# ## --------------------------------------------------------------------------------------------
-# Define the base directory
-base_dir = './data'
+## --------------------------------------------------------------------------------------------
+# # Define the base directory
+# base_dir = './data'
 
-# Define the subdirectories and labels
-categories = {
-    'generated_watermarked': 'generated',
-    'natural_images': 'natural'
-}
+# # Define the subdirectories and labels
+# categories = {
+#     'generated_watermarked': 'generated',
+#     'natural_images': 'natural'
+# }
 
-# Include 'test' in the subfolders
-subfolders = ['train', 'valid', 'test']
+# # Include 'test' in the subfolders
+# subfolders = ['train', 'valid', 'test']
 
-# Function to process each directory
-def process_directory(path, label, folder_type):
-    for root, dirs, files in os.walk(path):
-        # Only proceed if in the right subfolder
-        if os.path.basename(root) in subfolders:
-            for file in files:
-                if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
-                    data['id'].append(file)
-                    data['path'].append(os.path.join(root, file))
-                    data['label'].append(label)
-                    data['type'].append(folder_type)
+# # Function to process each directory
+# def process_directory(path, label, folder_type):
+#     for root, dirs, files in os.walk(path):
+#         # Only proceed if in the right subfolder
+#         if os.path.basename(root) in subfolders:
+#             for file in files:
+#                 if file.lower().endswith(('.png', '.jpg', '.jpeg')):  # Adjust for image formats as necessary
+#                     data['id'].append(file)
+#                     data['path'].append(os.path.join(root, file))
+#                     data['label'].append(label)
+#                     data['type'].append(folder_type)
 
-# Iterate through each category and its specified subdirectories
-for category, label in categories.items():
-    for subfolder in subfolders:
-        dir_path = os.path.join(base_dir, category, subfolder)
-        process_directory(dir_path, label, subfolder)
+# # Iterate through each category and its specified subdirectories
+# for category, label in categories.items():
+#     for subfolder in subfolders:
+#         dir_path = os.path.join(base_dir, category, subfolder)
+#         process_directory(dir_path, label, subfolder)
 
-# Convert the entire data to a DataFrame
-df = pd.DataFrame(data)
-le = preprocessing.LabelEncoder()
-df['label'] = le.fit_transform(df['label'].values)
+# # Convert the entire data to a DataFrame
+# df = pd.DataFrame(data)
+# le = preprocessing.LabelEncoder()
+# df['label'] = le.fit_transform(df['label'].values)
 
-# Creating separate dataframes for train, valid, and test
-df_train = df[df['type'] == 'train'].reset_index(drop=True)
-df_valid = df[df['type'] == 'valid'].reset_index(drop=True)
-df_test = df[df['type'] == 'test'].reset_index(drop=True)
+# # Creating separate dataframes for train, valid, and test
+# df_train = df[df['type'] == 'train'].reset_index(drop=True)
+# df_valid = df[df['type'] == 'valid'].reset_index(drop=True)
+# df_test = df[df['type'] == 'test'].reset_index(drop=True)
 
-
+# ### ---------------------------------------------------------------------------
 print(f'len: {len(df_test)}')
 # Note: No need for label encoding or separating into train/valid/test since it's for inference
 
@@ -256,7 +254,7 @@ with torch.no_grad():
 df_test['pred'] = np.argmax(predictions, axis=1)
 
 
-df_test.to_csv('dalle_results.csv', index=False)
+df_test.to_csv('imagen_results.csv', index=False)
 ## Decode labels & Predictions
 # df_test['label'] = le.inverse_transform(df_test['label'].values)
 # df_test['pred'] = le.inverse_transform(df_test['pred'].values)
@@ -303,9 +301,9 @@ df_test.to_csv('dalle_results.csv', index=False)
 #             cmap="YlGnBu")
 # plt.title('Confusion Matrix')
 # plt.savefig('./models/gen_convnext_xlarge_202312281239'+'/confusion_matrix_dalle.png')
-# #plt.show()
+#plt.show()
 
-# #print(f'confusion_matrix \n-------------------------\n {test_matrix}')
+#print(f'confusion_matrix \n-------------------------\n {test_matrix}')
 
 
 # # In[24]:
