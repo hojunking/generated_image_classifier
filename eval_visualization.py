@@ -55,7 +55,7 @@ import pandas as pd
 import numpy as np
 # Assuming df_test is your dataframe and has been defined earlier
 
-df = pd.read_csv('test_results.csv')
+df = pd.read_csv('./test_result/test_results.csv')
 # Sample up to 8 images for TP, TN, FP, and FN
 tp_samples = df[(df['label'] == 1) & (df['pred'] == 1)].sample(n=min(8, len(df[(df['label'] == 1) & (df['pred'] == 1)])), random_state=4)
 tn_samples = df[(df['label'] == 0) & (df['pred'] == 0)].sample(n=min(8, len(df[(df['label'] == 0) & (df['pred'] == 0)])), random_state=4)
@@ -92,19 +92,21 @@ def visualize_and_save(samples, title_prefix, filename, rows=2, cols=4, fig_size
             axes[i].set_title(title, fontsize=14, loc='left')  # Left align title
             
         axes[i].axis('off')
-        
+    
+    # Adjust the layout to make space for the title
+    plt.subplots_adjust(top=0.60)  # You may need to adjust this value
     # Hide unused subplots
     for ax in axes[len(samples):]:
         ax.axis('off')
     plt.tight_layout()
-    plt.savefig(filename)
+    plt.savefig(filename, bbox_inches='tight')
 
 # Visualize and save TP and TN images
-visualize_and_save(tp_samples, 'TP', './result_img/TP_images3.png', rows=2, cols=4)
-visualize_and_save(tn_samples, 'TN', './result_img/TN_images3.png', rows=2, cols=4)
+visualize_and_save(tp_samples, 'TP', './result_img/TP_images4.png', rows=2, cols=4)
+visualize_and_save(tn_samples, 'TN', './result_img/TN_images4.png', rows=2, cols=4)
 
 # Combine FP and FN samples for integrated visualization
 fp_fn_samples = pd.concat([fp_samples, fn_samples])
 
 # Visualize and save integrated FP and FN images
-visualize_and_save(fp_fn_samples, 'FP/FN', './result_img/FP_FN_integrated_images.png', rows=1, cols=4, fig_size=(20, 5))
+visualize_and_save(fp_fn_samples, 'FP/FN', './result_img/FP_FN_integrated_images2.png', rows=1, cols=4, fig_size=(20, 5))
